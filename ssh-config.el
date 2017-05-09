@@ -1,18 +1,28 @@
-;; usage:
+;;; usage:
 
-;; parse config into alist 'ssh:
+;;;; parse config into alist 'ssh:
+;;
 ;; (setq ssh (ssh-config-parse))
 ;;
 ;; =>  (("\\(klingel\\)" "root" "192.168.128.108")
 ;;     ("\\(bsdpi\\)"   "madi" "192.168.128.19"))
 
-;; return matching user+hostname pair for bb211 (maybe a wildcard entry)
+;;;; return matching user+hostname pair for bb211 (maybe a wildcard entry):
+;;
 ;; (ssh-match ssh "bb211")
 ;;
 ;; => ("cisco" "bb211")
 
-;; .ssh/config entry for this:
-;;    Host bb*
+;;;; print:
+;;
+;; (message (format "%s@%s" (car (ssh-match ssh "bb211"))
+;;                          (cdr (ssh-match ssh "bb311"))))
+;;
+;; => "cisco@bb311"
+
+;;;; .ssh/config entry for this:
+;;
+;; => Host bb*
 ;;      User cisco
 
 
@@ -27,6 +37,12 @@
   (buffer-substring-no-properties
    (line-beginning-position)
    (line-end-position)))
+
+(defun ssh-add-entry (sshlist host hostname user)
+  (when (and host (or user hostname))
+    (when (not user)
+      (setq user current-user))
+    (add-to-list 'sshlist (list (glob-to-regex host) user hostname) t)))
 
 (defun ssh-config-parse ()
   "Parse ~/.ssh/config and return content as alist."
@@ -45,7 +61,7 @@
       (while (not (eobp))
         (setq line (get-line))
         (when (string-match "^Host \\(.+\\)" line)
-          (when host
+          (when (and host (or user hostname))
             (when (not user)
               (setq user current-user))
             (add-to-list 'ssh (list (glob-to-regex host) user hostname) t))
@@ -57,24 +73,24 @@
         (when (string-match "\s*Hostname \\(.+\\)" line)
           (setq hostname (match-string 1 line)))
         (next-line))
-      (when host ; check again, in case some host left unlogged
+      (when (and host (or user hostname)); check again, in case some host left unlogged
         (when (not user)
           (setq user current-user))
         (add-to-list 'ssh (list (glob-to-regex host) user hostname) t)))
     ssh))
 
-(defun ssh-get-assoc(H R)
-  "Return hostname,username from alist H matching regexp R"
-  (cdr (assoc R H)))
-
-(defun ssh-match (H N)
-  "Return username,hostname from hostname N matching key(H) in alist H.
+(defun ssh-match (sshlist N)
+  "Return username,hostname from hostname N matching key(sshlist) in alist H.
 
 If entry has no hostname, N is returned, if it has no username, current user
-will be returned. Returned value is a list. Access with car and cdr."
-  (catch 'break (dolist (cell H)
-                  (let* ((R (car cell))
-                         (U (car (ssh-get-assoc H R)))
-                         (H (or (car (cdr (ssh-get-assoc H R))) N)))
+will be returned. Returned value is a cons cell. Access with car and cdr."
+  (catch 'break (dolist (cell sshlist)        ; ("\\(dpl\\)" "root" "dipol.foo.bar") 
+                  (let* ((R (car cell))       ; "\\(dpl\\)"
+                         (P (cdr cell))       ; ("root" . "dipol.foo.bar")
+                         (U (car P))          ; "root"
+                         (H (car (cdr P))))   ; "dipol.foo.bar"
                     (when (string-match R N)
-                      (throw 'break (list U H)))))))
+                      (message (format "R: %s, P: %s, U: %s, H: %s" R P U H))
+                      (throw 'break (cons U (or H N))))))))
+
+
